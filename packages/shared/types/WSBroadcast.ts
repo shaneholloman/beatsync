@@ -126,11 +126,18 @@ const DemoUserCountSchema = z.object({
 });
 export type DemoUserCountType = z.infer<typeof DemoUserCountSchema>;
 
+const DemoAudioReadyCountSchema = z.object({
+  type: z.literal("DEMO_AUDIO_READY_COUNT"),
+  count: z.number().nonnegative(),
+});
+export type DemoAudioReadyCountType = z.infer<typeof DemoAudioReadyCountSchema>;
+
 // Export both broadcast types
 export const WSBroadcastSchema = z.discriminatedUnion("type", [
   ScheduledActionSchema,
   RoomEventSchema,
   StreamJobUpdateSchema,
   DemoUserCountSchema,
+  DemoAudioReadyCountSchema,
 ]);
 export type WSBroadcastType = z.infer<typeof WSBroadcastSchema>;

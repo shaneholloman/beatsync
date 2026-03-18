@@ -148,6 +148,11 @@ export const handleOpen = (ws: ServerWebSocket<WSData>, server: BunServer) => {
     });
     // Broadcast updated user count to all clients
     debouncedDemoUserCountBroadcast(server, roomId);
+    // Send current audio ready count to the newly joined client
+    sendToClient({
+      ws,
+      message: { type: "DEMO_AUDIO_READY_COUNT", count: room.getDemoAudioReadyCount() },
+    });
   } else {
     // Unicast full client list to the joining client immediately
     sendToClient({ ws, message: createClientUpdate(roomId) });

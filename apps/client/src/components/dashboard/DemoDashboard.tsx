@@ -1,7 +1,6 @@
 "use client";
 import { cn, extractFileNameFromUrl } from "@/lib/utils";
 import { useGlobalStore } from "@/store/global";
-import { Users } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { TopBar } from "../room/TopBar";
 import { SyncProgress, WS_STATUS_COLORS } from "../ui/SyncProgress";
@@ -10,23 +9,29 @@ import { Bottom } from "./Bottom";
 import { RoomQRCode } from "./CopyRoom";
 import { LowPassControl } from "./LowPassControl";
 
-const CONNECTED_RGB = WS_STATUS_COLORS.connected;
+const AUDIO_LOADING_RGB = WS_STATUS_COLORS.connecting;
+const AUDIO_LOADED_RGB = WS_STATUS_COLORS.connected;
 
-const PulsingDot = () => (
-  <span className="relative flex size-2.5">
-    <span
-      className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75"
-      style={{ backgroundColor: `rgb(${CONNECTED_RGB})` }}
-    />
-    <span
-      className="relative inline-flex size-2.5 rounded-full"
-      style={{
-        backgroundColor: `rgb(${CONNECTED_RGB})`,
-        boxShadow: `0 0 6px 1px rgba(${CONNECTED_RGB},0.5)`,
-      }}
-    />
-  </span>
-);
+const AudioDot = ({ isLoaded }: { isLoaded: boolean }) => {
+  const rgb = isLoaded ? AUDIO_LOADED_RGB : AUDIO_LOADING_RGB;
+  return (
+    <span className="relative flex size-2.5">
+      {!isLoaded && (
+        <span
+          className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75"
+          style={{ backgroundColor: `rgb(${rgb})` }}
+        />
+      )}
+      <span
+        className="relative inline-flex size-2.5 rounded-full transition-colors duration-500"
+        style={{
+          backgroundColor: `rgb(${rgb})`,
+          boxShadow: `0 0 6px 1px rgba(${rgb},0.5)`,
+        }}
+      />
+    </span>
+  );
+};
 
 const DemoTrackSelector = () => {
   const audioSources = useGlobalStore((state) => state.audioSources);
@@ -71,7 +76,11 @@ export const DemoDashboard = ({ roomId }: DemoDashboardProps) => {
   const isLoadingAudio = useGlobalStore((state) => state.isInitingSystem);
   const hasUserStartedSystem = useGlobalStore((state) => state.hasUserStartedSystem);
   const demoUserCount = useGlobalStore((state) => state.demoUserCount);
+  const demoAudioReadyCount = useGlobalStore((state) => state.demoAudioReadyCount);
   const isAdmin = useGlobalStore((state) => state.currentUser?.isAdmin ?? false);
+  const isAudioLoaded = useGlobalStore(
+    (state) => state.audioSources.length > 0 && state.audioSources.every((s) => s.status === "loaded")
+  );
 
   const isReady = isSynced && !isLoadingAudio;
 
@@ -93,9 +102,20 @@ export const DemoDashboard = ({ roomId }: DemoDashboardProps) => {
           <div className="flex-1 flex items-center justify-center">
             <div className="flex flex-col items-center gap-4">
               <div className="flex items-center gap-3 text-neutral-400">
-                <PulsingDot />
-                <Users size={20} />
-                <span className="text-sm font-medium tracking-wide uppercase">Connected</span>
+                <AudioDot isLoaded={isAudioLoaded} />
+                <span
+                  className={cn(
+                    "text-sm font-medium tracking-wide uppercase transition-colors duration-500",
+                    isAudioLoaded ? "text-neutral-400" : "animate-pulse text-yellow-400"
+                  )}
+                >
+                  {isAudioLoaded ? "Audio Loaded" : "Loading Audio"}
+                </span>
+                {isAdmin && (
+                  <span className="text-sm font-mono text-neutral-300 tabular-nums">
+                    {demoAudioReadyCount}/{demoUserCount}
+                  </span>
+                )}
               </div>
               <AnimatePresence mode="popLayout">
                 <motion.span

@@ -3,6 +3,7 @@ import { IS_DEMO_MODE } from "@/demo";
 import { deleteObjectsWithPrefix } from "@/lib/r2";
 import { ChatManager } from "@/managers/ChatManager";
 import { calculateGainFromDistanceToSource } from "@/spatial";
+import { debounce } from "@/utils/debounce";
 import { sendBroadcast, sendUnicast } from "@/utils/responses";
 import { positionClientsInCircle } from "@/utils/spatial";
 import type { BunServer, WSData } from "@/utils/websocket";
@@ -105,26 +106,35 @@ export class RoomManager {
   };
   private intervalId?: NodeJS.Timeout;
   private cleanupTimer?: NodeJS.Timeout;
-  private clientChangeBroadcastTimer?: NodeJS.Timeout;
+  private pendingClientChangeCb?: () => void;
+  private readonly debouncedClientChange = debounce(() => {
+    this.pendingClientChangeCb?.();
+  }, 500);
+  private readonly debouncedAudioReady = debounce(() => this.flushAudioReadyBroadcast(), 200);
   private heartbeatCheckInterval?: NodeJS.Timeout;
   private onClientCountChange?: () => void;
   private playbackState: RoomPlaybackState = INITIAL_PLAYBACK_STATE;
   private playbackControlsPermissions: PlaybackControlsPermissionsType = "ADMIN_ONLY";
-  private globalVolume = 1.0; // Default 100% volume
+  private globalVolume = 1.0;
   private lowPassFreq: number = LOW_PASS_CONSTANTS.MAX_FREQ; // Default bypassed (full spectrum)
   private isMetronomeEnabled = false;
   // Map of trackId to job status
   private activeStreamJobs = new Map<string, { status: string }>();
   private chatManager: ChatManager;
+  private serverRef?: BunServer;
 
   // Audio loading state for synchronized playback
   private pendingPlay?: PendingPlayState;
+  private demoAudioReadyClients = new Set<string>();
   constructor(
     private readonly roomId: string,
     onClientCountChange?: () => void // To update the global # of clients active
   ) {
     this.onClientCountChange = onClientCountChange;
     this.chatManager = new ChatManager({ roomId });
+    if (IS_DEMO_MODE) {
+      this.globalVolume = 0.8;
+    }
   }
 
   /**
@@ -210,6 +220,13 @@ export class RoomManager {
    * Process when a client reports they've loaded the audio source
    */
   processClientLoadedAudioSource(clientId: string, server: BunServer): void {
+    if (IS_DEMO_MODE) {
+      this.serverRef = server;
+      this.demoAudioReadyClients.add(clientId);
+      this.debouncedAudioReady();
+      return;
+    }
+
     if (!this.pendingPlay) {
       console.warn(
         `Room ${this.roomId}: Client ${clientId} reported audio source loaded, but no pending play state found`
@@ -229,6 +246,10 @@ export class RoomManager {
       console.log(`Room ${this.roomId}: All clients loaded. Starting playback.`);
       this.executeScheduledPlay(server);
     }
+  }
+
+  getDemoAudioReadyCount(): number {
+    return this.demoAudioReadyClients.size;
   }
 
   /**
@@ -348,6 +369,9 @@ export class RoomManager {
   removeClient(clientId: string): void {
     // Only remove from wsConnections, keep clientData for rejoin scenarios
     this.wsConnections.delete(clientId);
+    if (this.demoAudioReadyClients.delete(clientId)) {
+      this.debouncedAudioReady();
+    }
 
     const activeClients = this.getClients();
     // Reposition remaining clients if any
@@ -987,21 +1011,23 @@ export class RoomManager {
   }
 
   /** Debounce a CLIENT_CHANGE broadcast. Coalesces rapid joins/leaves into one callback. */
-  scheduleClientChangeBroadcast(callback: () => void, delayMs = 500): void {
-    if (this.clientChangeBroadcastTimer) {
-      clearTimeout(this.clientChangeBroadcastTimer);
-    }
-    this.clientChangeBroadcastTimer = setTimeout(() => {
-      this.clientChangeBroadcastTimer = undefined;
-      callback();
-    }, delayMs);
+  scheduleClientChangeBroadcast(callback: () => void): void {
+    this.pendingClientChangeCb = callback;
+    this.debouncedClientChange();
   }
 
   clearClientChangeBroadcast(): void {
-    if (this.clientChangeBroadcastTimer) {
-      clearTimeout(this.clientChangeBroadcastTimer);
-      this.clientChangeBroadcastTimer = undefined;
-    }
+    this.debouncedClientChange.cancel();
+    this.pendingClientChangeCb = undefined;
+  }
+
+  private flushAudioReadyBroadcast(): void {
+    if (!this.serverRef) return;
+    sendBroadcast({
+      server: this.serverRef,
+      roomId: this.roomId,
+      message: { type: "DEMO_AUDIO_READY_COUNT", count: this.demoAudioReadyClients.size },
+    });
   }
 
   /**

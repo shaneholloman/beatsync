@@ -102,6 +102,7 @@ interface GlobalStateValues {
   connectedClients: ClientDataType[];
   currentUser: ClientDataType | null;
   demoUserCount: number;
+  demoAudioReadyCount: number;
 
   // NTP
   syncMeasurements: NTPMeasurement[];
@@ -255,6 +256,7 @@ const initialState: GlobalStateValues = {
   connectedClients: [],
   currentUser: null,
   demoUserCount: 0,
+  demoAudioReadyCount: 0,
 
   // NTP state
   syncMeasurements: [],

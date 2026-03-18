@@ -242,6 +242,10 @@ export const WebSocketManager = ({ roomId, username }: WebSocketManagerProps) =>
         if (useGlobalStore.getState().demoUserCount !== response.count) {
           useGlobalStore.setState({ demoUserCount: response.count });
         }
+      } else if (response.type === "DEMO_AUDIO_READY_COUNT") {
+        if (useGlobalStore.getState().demoAudioReadyCount !== response.count) {
+          useGlobalStore.setState({ demoAudioReadyCount: response.count });
+        }
       } else {
         console.log("Unknown response type:", response);
       }
