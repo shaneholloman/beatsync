@@ -8,14 +8,12 @@ import {
   UploadUrlResponseType,
 } from "@beatsync/shared";
 import axios from "axios";
-
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL;
-if (!BASE_URL) {
-  throw new Error("NEXT_PUBLIC_API_URL is not set");
-}
+import { getApiUrl } from "./urls";
 
 const baseAxios = axios.create({
-  baseURL: BASE_URL,
+  get baseURL() {
+    return getApiUrl();
+  },
 });
 
 export const uploadAudioFile = async (data: { file: File; roomId: string }) => {
@@ -85,7 +83,7 @@ export const fetchAudio = async (url: string) => {
 
 export async function fetchDefaultAudioSources() {
   try {
-    const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/default`);
+    const response = await fetch(`${getApiUrl()}/default`);
 
     if (!response.ok) {
       console.error("Failed to fetch default audio sources:", response.status);
@@ -101,13 +99,13 @@ export async function fetchDefaultAudioSources() {
 }
 
 export async function fetchActiveRooms() {
-  const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/active-rooms`);
+  const response = await fetch(`${getApiUrl()}/active-rooms`);
   const data: GetActiveRoomsType = await response.json();
   return data;
 }
 
 export async function fetchDiscoverRooms() {
-  const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/discover`);
+  const response = await fetch(`${getApiUrl()}/discover`);
   const data: DiscoverRoomsType = await response.json();
   return data;
 }

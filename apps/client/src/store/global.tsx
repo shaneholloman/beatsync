@@ -3,6 +3,7 @@ import { audioContextManager, isAudioContextPaused } from "@/lib/audioContextMan
 import { getClientId } from "@/lib/clientId";
 import { getKickBuffer } from "@/components/dashboard/Metronome";
 import { IS_DEMO_MODE } from "@/lib/demo";
+import { getApiUrl } from "@/lib/urls";
 import { extractFileNameFromUrl } from "@/lib/utils";
 import {
   calculateOffsetEstimate,
@@ -65,6 +66,10 @@ export const AudioSourceStateSchema = z.discriminatedUnion("status", [
   z.object({
     source: AudioSourceSchema,
     status: z.literal("loading"),
+    /** Bytes downloaded so far */
+    loadedBytes: z.number().optional(),
+    /** Total bytes (from Content-Length) */
+    totalBytes: z.number().optional(),
   }),
   z.object({
     source: AudioSourceSchema,
@@ -342,16 +347,42 @@ const getWaitTimeSeconds = (state: GlobalState, targetServerTime: number) => {
   return Math.max(0, (waitTimeMilliseconds - outputLatencyMs) / 1000);
 };
 
-const resolveAudioUrl = (url: string): string =>
-  url.startsWith("/") ? `${process.env.NEXT_PUBLIC_API_URL}${url}` : url;
+const resolveAudioUrl = (url: string): string => (url.startsWith("/") ? `${getApiUrl()}${url}` : url);
 
-const downloadBufferFromURL = async ({ url }: { url: string }) => {
-  const response = await fetch(resolveAudioUrl(url));
-  const arrayBuffer = await response.arrayBuffer();
+const downloadBufferFromURL = async (data: { url: string; onProgress?: (loaded: number, total: number) => void }) => {
+  const response = await fetch(resolveAudioUrl(data.url));
+  const contentLength = Number(response.headers.get("content-length") ?? 0);
+
+  let arrayBuffer: ArrayBuffer;
+  if (contentLength > 0 && response.body && data.onProgress) {
+    // Stream with progress tracking
+    const reader = response.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let loaded = 0;
+    data.onProgress(0, contentLength);
+
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      loaded += value.byteLength;
+      data.onProgress(loaded, contentLength);
+    }
+
+    // Combine chunks into single ArrayBuffer
+    const combined = new Uint8Array(loaded);
+    let offset = 0;
+    for (const chunk of chunks) {
+      combined.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    arrayBuffer = combined.buffer;
+  } else {
+    arrayBuffer = await response.arrayBuffer();
+  }
+
   const audioBuffer = await audioContextManager.decodeAudioData(arrayBuffer);
-  return {
-    audioBuffer,
-  };
+  return { audioBuffer };
 };
 
 const initializationMutex = new Mutex();
@@ -439,7 +470,20 @@ export const useGlobalStore = create<GlobalState>((set, get) => {
         ),
       }));
 
-      const { audioBuffer } = await downloadBufferFromURL({ url });
+      let lastReportedBytes = 0;
+      const PROGRESS_THRESHOLD = 100 * 1024; // Report every ~100KB
+      const { audioBuffer } = await downloadBufferFromURL({
+        url,
+        onProgress: (loaded, total) => {
+          if (loaded - lastReportedBytes < PROGRESS_THRESHOLD && loaded < total) return;
+          lastReportedBytes = loaded;
+          set((currentState) => ({
+            audioSources: currentState.audioSources.map((as) =>
+              as.source.url === url && as.status === "loading" ? { ...as, loadedBytes: loaded, totalBytes: total } : as
+            ),
+          }));
+        },
+      });
 
       // Update the source with loaded buffer
       set((currentState) => ({
